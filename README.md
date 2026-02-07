@@ -1,5 +1,8 @@
+# NanoGPT_Jorge_Murillo (Fork)
 
-# nanoGPT
+This repository is a fork maintained by Jorge C. Murillo, with additional training/data workflow changes (including FineWebEdu support and extra training dynamics logging).
+
+## Original Project: nanoGPT - Andrej Karpathy
 
 ![nanoGPT](assets/nanogpt.jpg)
 
@@ -43,7 +46,12 @@ What model runs by default in this setup:
 Learning rate defaults:
 
 - base LR is `6e-4` (`learning_rate` in `train.py`).
-- warmup is `warmup_iters=2000`, then cosine decay to `min_lr=6e-5` by `lr_decay_iters` (typically `600000` in `config/train_gpt2.py`).
+- warmup is `warmup_iters=2000`, then cosine decay to `min_lr=6e-5` by `lr_decay_iters=21000` in this fork.
+
+Run length defaults in this fork:
+
+- this fork changes `max_iters` from the original 600,000-step style run to `21,000` steps (`train.py` and `config/train_gpt2.py`).
+- this is intentional to make experiments much faster and cheaper to run, while keeping the same warmup+cosine LR schedule shape for shorter-turnaround iteration.
 
 Micro-batch size (`batch_size`) and why to change it:
 
