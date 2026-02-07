@@ -16,6 +16,52 @@ The simplest, fastest repository for training/finetuning medium-sized GPTs. It i
 
 Because the code is so simple, it is very easy to hack to your needs, train new models from scratch, or finetune pretrained checkpoints (e.g. biggest one currently available as a starting point would be the GPT-2 1.3B model from OpenAI).
 
+## fork quickstart (finewebedu + torchrun)
+
+This fork includes `data/finewebedu_10b/prepare.py`, which follows the OpenWebText preparation flow but loads:
+
+- dataset: `HuggingFaceFW/fineweb-edu`
+- config: `sample-10BT`
+
+Prepare data:
+
+```sh
+python data/finewebedu_10b/prepare.py
+```
+
+Train with DDP using `torchrun` (example: 8 GPUs on one node):
+
+```sh
+torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py --dataset=finewebedu_10b --out_dir=out-finewebedu-10b
+```
+
+What model runs by default in this setup:
+
+- `config/train_gpt2.py` targets GPT-2 small / 124M scale (12 layers, 12 heads, 768 embedding).
+- `init_from='scratch'` in `train.py` means training starts from random initialization unless you override it.
+
+Learning rate defaults:
+
+- base LR is `6e-4` (`learning_rate` in `train.py`).
+- warmup is `warmup_iters=2000`, then cosine decay to `min_lr=6e-5` by `lr_decay_iters` (typically `600000` in `config/train_gpt2.py`).
+
+Micro-batch size (`batch_size`) and why to change it:
+
+- in this codebase, `batch_size` is the per-process micro-batch size when gradient accumulation is used.
+- change it in config files (e.g. `config/train_gpt2.py`) or CLI (`--batch_size=...`).
+- reduce it if you hit CUDA OOM; increase it if memory allows and you want better throughput.
+- if you change `batch_size`, you usually retune `gradient_accumulation_steps` to keep total tokens/step near your target.
+
+Expected outputs:
+
+- data preprocessing:
+  - `data/finewebedu_10b/train.bin`
+  - `data/finewebedu_10b/val.bin`
+- training output directory (`--out_dir`, e.g. `out-finewebedu-10b`):
+  - `ckpt.pt` checkpoints
+  - `scalars.jsonl` with per-step LR/optimization/throughput dynamics and periodic validation loss
+  - `exposures/exposures_rankXXXX.jsonl` with per-rank sampled `train.bin` start indices (to reconstruct what was fed)
+
 ## install
 
 ```
@@ -132,37 +178,6 @@ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.4
 It is a good idea to benchmark your interconnect (e.g. iperf3). In particular, if you don't have Infiniband then also prepend `NCCL_IB_DISABLE=1` to the above launches. Your multinode training will work, but most likely _crawl_. By default checkpoints are periodically written to the `--out_dir`. We can sample from the model by simply `python sample.py`.
 
 Finally, to train on a single GPU simply run the `python train.py` script. Have a look at all of its args, the script tries to be very readable, hackable and transparent. You'll most likely want to tune a number of those variables depending on your needs.
-
-### FineWebEdu 10B (this fork)
-
-This fork includes `data/finewebedu_10b/prepare.py`, which follows the OpenWebText preparation flow but loads:
-
-- dataset: `HuggingFaceFW/fineweb-edu`
-- config: `sample-10BT`
-
-Prepare data:
-
-```sh
-python data/finewebedu_10b/prepare.py
-```
-
-Train with DDP using `torchrun` (example: 8 GPUs on one node):
-
-```sh
-torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py --dataset=finewebedu_10b --out_dir=out-finewebedu-10b
-```
-
-You can also run single-node DDP with fewer GPUs by changing `--nproc_per_node`.
-
-Expected outputs:
-
-- data preprocessing:
-  - `data/finewebedu_10b/train.bin`
-  - `data/finewebedu_10b/val.bin`
-- training output directory (`--out_dir`, e.g. `out-finewebedu-10b`):
-  - `ckpt.pt` checkpoints
-  - `scalars.jsonl` with per-step LR/optimization/throughput dynamics and periodic validation loss
-  - `exposures/exposures_rankXXXX.jsonl` with per-rank sampled `train.bin` start indices (to reconstruct what was fed)
 
 ## baselines
 
