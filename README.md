@@ -133,6 +133,37 @@ It is a good idea to benchmark your interconnect (e.g. iperf3). In particular, i
 
 Finally, to train on a single GPU simply run the `python train.py` script. Have a look at all of its args, the script tries to be very readable, hackable and transparent. You'll most likely want to tune a number of those variables depending on your needs.
 
+### FineWebEdu 10B (this fork)
+
+This fork includes `data/finewebedu_10b/prepare.py`, which follows the OpenWebText preparation flow but loads:
+
+- dataset: `HuggingFaceFW/fineweb-edu`
+- config: `sample-10BT`
+
+Prepare data:
+
+```sh
+python data/finewebedu_10b/prepare.py
+```
+
+Train with DDP using `torchrun` (example: 8 GPUs on one node):
+
+```sh
+torchrun --standalone --nproc_per_node=8 train.py config/train_gpt2.py --dataset=finewebedu_10b --out_dir=out-finewebedu-10b
+```
+
+You can also run single-node DDP with fewer GPUs by changing `--nproc_per_node`.
+
+Expected outputs:
+
+- data preprocessing:
+  - `data/finewebedu_10b/train.bin`
+  - `data/finewebedu_10b/val.bin`
+- training output directory (`--out_dir`, e.g. `out-finewebedu-10b`):
+  - `ckpt.pt` checkpoints
+  - `scalars.jsonl` with per-step LR/optimization/throughput dynamics and periodic validation loss
+  - `exposures/exposures_rankXXXX.jsonl` with per-rank sampled `train.bin` start indices (to reconstruct what was fed)
+
 ## baselines
 
 OpenAI GPT-2 checkpoints allow us to get some baselines in place for openwebtext. We can get the numbers as follows:
