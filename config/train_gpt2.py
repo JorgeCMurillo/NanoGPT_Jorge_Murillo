@@ -6,15 +6,14 @@ wandb_log = True
 wandb_project = 'owt'
 wandb_run_name='gpt2-124M'
 
-# these make the total batch size be ~0.5M
-# 12 batch size * 1024 block size * 5 gradaccum * 8 GPUs = 491,520
+# token-budgeted batch sizing (~0.5M tokens/update target, llm.c-style)
 batch_size = 12
 block_size = 1024
-gradient_accumulation_steps = 5 * 8
+total_batch_tokens = 524288
 
-# this makes total number of iterations be 21k
-max_iters = 21000
-lr_decay_iters = 21000
+# this makes total number of iterations be 20k
+max_iters = 20000
+lr_decay_iters = 20000
 
 # eval stuff
 eval_interval = 1000

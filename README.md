@@ -30,19 +30,25 @@ What model runs by default in this setup:
 Learning rate defaults:
 
 - base LR is `6e-4` (`learning_rate` in `train.py`).
-- warmup is `warmup_iters=2000`, then cosine decay to `min_lr=6e-5` by `lr_decay_iters=21000` in this fork.
+- warmup is `warmup_iters=700`, then cosine decay to `min_lr=0.0` by `lr_decay_iters=20000` in this fork.
 
 Run length defaults in this fork:
 
-- this fork changes `max_iters` from the original 600,000-step style run to `21,000` steps (`train.py` and `config/train_gpt2.py`).
-- this is intentional to make experiments much faster and cheaper to run, while keeping the same warmup+cosine LR schedule shape for shorter-turnaround iteration.
+- this fork changes `max_iters` from the original 600,000-step style run to `20,000` steps (`train.py` and `config/train_gpt2.py`).
+- this is intentional to make experiments much faster and cheaper to run, while keeping llm.c-style warmup+cosine decay behavior for shorter-turnaround iteration.
+
+Token budget auto-calculation (llm.c-style):
+
+- set `total_batch_tokens=524288` to target ~0.5M tokens per optimizer step globally.
+- `train.py` now computes `gradient_accumulation_steps = ceil(total_batch_tokens / (world_size * batch_size * block_size))`.
+- this means accumulation automatically scales with number of GPUs and micro-batch size.
 
 Micro-batch size (`batch_size`) and why to change it:
 
 - in this codebase, `batch_size` is the per-process micro-batch size when gradient accumulation is used.
 - change it in config files (e.g. `config/train_gpt2.py`) or CLI (`--batch_size=...`).
 - reduce it if you hit CUDA OOM; increase it if memory allows and you want better throughput.
-- if you change `batch_size`, you usually retune `gradient_accumulation_steps` to keep total tokens/step near your target.
+- with `total_batch_tokens > 0`, you usually do not need to manually retune `gradient_accumulation_steps`; it is derived automatically.
 
 Expected outputs:
 

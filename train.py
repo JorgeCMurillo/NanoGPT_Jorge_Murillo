@@ -46,7 +46,8 @@ wandb_project = 'owt'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 # data
 dataset = 'openwebtext'
-gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
+gradient_accumulation_steps = 1 # legacy/manual fallback when total_batch_tokens <= 0
+total_batch_tokens = 524288 # desired global tokens per optimizer step (llm.c-style token budget)
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
 # model
@@ -57,16 +58,16 @@ dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
-max_iters = 21000 # total number of training iterations
+max_iters = 20000 # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
-warmup_iters = 2000 # how many steps to warm up for
-lr_decay_iters = 21000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+warmup_iters = 700 # how many steps to warm up for
+lr_decay_iters = 20000 # should be ~= max_iters per Chinchilla
+min_lr = 0.0 # decay learning rate all the way to 0.0 (llm.c-style q=0.0)
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
@@ -123,17 +124,27 @@ if ddp:
     torch.cuda.set_device(device)
     master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
     seed_offset = ddp_rank # each process gets a different seed
-    # world_size number of processes will be training simultaneously, so we can scale
-    # down the desired gradient accumulation iterations per process proportionally
-    assert gradient_accumulation_steps % ddp_world_size == 0
-    gradient_accumulation_steps //= ddp_world_size
 else:
     # if not ddp, we are running on a single gpu, and one process
     master_process = True
     seed_offset = 0
     ddp_world_size = 1
-tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
-print(f"tokens per iteration will be: {tokens_per_iter:,}")
+tokens_per_microstep_global = ddp_world_size * batch_size * block_size
+if total_batch_tokens > 0:
+    # llm.c-style: derive inner-loop steps from desired global token budget per optimizer step
+    gradient_accumulation_steps = max(1, math.ceil(total_batch_tokens / tokens_per_microstep_global))
+elif ddp:
+    # legacy/manual mode: keep the old interpretation of gradient_accumulation_steps in DDP
+    assert gradient_accumulation_steps % ddp_world_size == 0
+    gradient_accumulation_steps //= ddp_world_size
+
+tokens_per_iter = gradient_accumulation_steps * tokens_per_microstep_global
+if master_process:
+    print(f"tokens per microstep (global): {tokens_per_microstep_global:,}")
+    if total_batch_tokens > 0:
+        print(f"requested total_batch_tokens: {total_batch_tokens:,}")
+    print(f"gradient_accumulation_steps: {gradient_accumulation_steps}")
+    print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
 if master_process:
     os.makedirs(out_dir, exist_ok=True)
@@ -188,6 +199,8 @@ if log_step_metrics and master_process:
         'data_dir': data_dir,
         'out_dir': out_dir,
         'tokens_per_iter': int(tokens_per_iter),
+        'tokens_per_microstep_global': int(tokens_per_microstep_global),
+        'total_batch_tokens_target': int(total_batch_tokens),
         'world_size': int(ddp_world_size),
         'gradient_accumulation_steps': int(gradient_accumulation_steps),
         'micro_batch_size': int(batch_size),
@@ -297,7 +310,7 @@ def estimate_loss():
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
     if it < warmup_iters:
-        return learning_rate * (it + 1) / (warmup_iters + 1)
+        return learning_rate * (it + 1) / warmup_iters
     # 2) if it > lr_decay_iters, return min learning rate
     if it > lr_decay_iters:
         return min_lr
